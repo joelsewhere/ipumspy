@@ -216,7 +216,21 @@ class NHGIS:
             return response.json()
 
    
-
+    def download(self, wait=180):
+        '''
+        This method follows the available documentation of the IPUMS API, but it currently 
+        non functional.
+        '''
+        completed = False
+        while completed != True:
+            status = self.extract_status()
+            if status != 'completed':
+                sleep(wait)
+            else:
+                completed = True
+        extract_links = self.extract_status(status_only = False)["download_links"]
+        response = requests.get(extract_links["table_data"], allow_redirects=True)
+        return response.content
         
 class Dataset(NHGIS):
     '''A wrapper for creating validating requests to the IPUMS NHGIS API.
