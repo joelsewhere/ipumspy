@@ -41,7 +41,7 @@ API Documentation, example code, and developments updates for the API can be fou
 
 ----------------
 
-<details><summary><b>Development Updates<b></summary>
+<details><summary><b>Development Updates</b></summary>
 
 - *10/24/20* `NHGIS` class developed and pushed to github.
   - This class uses two subclasses `Dataset` and `TimeSeries` to validate and create the json request that aligns with API documentation.
