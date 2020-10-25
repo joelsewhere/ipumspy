@@ -153,6 +153,10 @@ class NHGIS:
                                         Use of NHGIS.time_series is recommended.''')
                     else:
                         raise ValueError(f'time_series_tables cannot be datatype: {type(table)}')
+            elif isinstance(time_series_tables, TimeSeries):
+                payload['time_series_tables'].update(time_series_tables.to_payload())
+            else:
+                raise ValueError('time_series_tables must be a list or a TimeSeries instance.')
                         
         if shapefiles:
             payload['shapefiles'] = shapefiles
@@ -194,9 +198,10 @@ class NHGIS:
                       time_series_table_layout=time_series_table_layout, 
                       geographic_extents=geographic_extents, description=description)
 
-        result = requests.post(url, headers=self.header, json=payload)
-        self.extract_number = result.json()["number"]
-        return result.json()
+        result = requests.post(url, headers=self.header, json=payload).json()
+        if 'number' in result:
+            self.extract_number = result['number']
+        return result
     
     def extract_status(self, status_only = True):
         '''
@@ -231,18 +236,18 @@ class Dataset(NHGIS):
     '''A wrapper for creating validating requests to the IPUMS NHGIS API.
         This class is used to format the json data structure for the NHGIS class.'''
 
-    def __init__(self, dataset, data_tables, geo_levels, years=None, breakdowns=[]):
-        self._validate(dataset, data_tables, geo_levels, years=years, breakdowns=breakdowns)
+    def __init__(self, dataset, data_tables, geog_levels, years=None, breakdowns=[]):
+        self._validate(dataset, data_tables, geog_levels, years=years, breakdowns=breakdowns)
         self.dataset = dataset
         self.data_tables = data_tables
-        self.geo_levels = geo_levels
+        self.geog_levels = geog_levels
         self.breakdowns = breakdowns
     
-    def _validate(self, dataset, data_tables, geo_levels, years=None, breakdowns=[]):
-        self.validate_types(dataset, data_tables, geo_levels, years, breakdowns)
+    def _validate(self, dataset, data_tables, geog_levels, years=None, breakdowns=[]):
+        self.validate_types(dataset, data_tables, geog_levels, years, breakdowns)
         metadata = self.dataset_metadata(dataset=dataset)
         self.validate_data_tables(metadata, data_tables)
-        self.validate_geo_levels(metadata, geo_levels)
+        self.validate_geog_levels(metadata, geog_levels)
         self.validate_years(metadata, years)
         self.validate_breakdowns(metadata, breakdowns)
 
@@ -252,23 +257,25 @@ class Dataset(NHGIS):
             if table not in supported_tables:
                 raise ValueError(f'''Data Table: {table} is not supported for dataset: {metadata["name"]}''')
             
-    def validate_geo_levels(self, metadata, geo_levels):
+    def validate_geog_levels(self, metadata, geog_levels):
         supported_levels = [value['name'] for value in metadata['geog_levels']]
-        for level in geo_levels:
+        for level in geog_levels:
             if level not in supported_levels:
                 raise ValueError(f'''Geo level: {level} is not supported for dataset: {metadata["name"]}''')
         
         self.extent_required = False      
         for level in metadata['geog_levels']:
-            if level['name'] in geo_levels:
+            if level['name'] in geog_levels:
                 if level['has_geog_extent_selection']:
                     warnings.warn(f"""
                     
-                    Geographic level: {level['name']} for Dataset: {metadata['name']}
+                    Geographic level: '{level['name']}' for Dataset: '{metadata['name']}'
                     requires geog_extent selection when extraction is made.
                     Available geographic extent options can be accessed with the
                     `NHGIS.geographic_extent_options` attribute.
-                    The `NHGIS.create_extract` method has a default geo_extent of ['*']""")
+                    The `NHGIS.create_extract` method has a default geog_extent of ['*']
+                    
+                    """)
                     self.extent_required = True
     
                     
@@ -286,16 +293,16 @@ class Dataset(NHGIS):
                     raise ValueError(f'''Breakdown: {breakdown} is not supported for dataset: {metadata["name"]}''')
         
     def is_multiyear(self, metadata):
-        year_count = re.findall('(\d)[-Year Data]', metadata['description'])
+        year_count = re.findall('(\d{4})', metadata['name'])
         if year_count:
-            count = int(year_count[0])
+            count = len(set(year_count))
         else:
             count = 1
         if count > 1:
             return True
         
     def year_range(self, metadata):
-        years = re.findall('(\d{4})', metadata['description'])
+        years = re.findall('(\d{4})', metadata['name'])
         if years:
             years = [int(year) for year in years]
             return [year for year in range(years[0], years[1] + 1)]
@@ -318,19 +325,21 @@ class Dataset(NHGIS):
                 raise ValueError(f'Dataset: {metadata["name"]} supports the year {supported_year}, but {years[0]} was given.')
         if not multiyear and not years:
             self.years = []
+        
+        self.years = years
 
     
-    def validate_types(self, dataset, data_tables, geo_levels, years, breakdowns):
+    def validate_types(self, dataset, data_tables, geog_levels, years, breakdowns):
         if type(dataset) != str:
             raise ValueError('dataset variable must be string.')
         if not type(data_tables) == list:
             raise ValueError('data_tables variable must be a list.')
         if not all(isinstance(item, str) for item in data_tables):
             raise ValueError('data_tables variable must be a list of strings.')
-        if not type(geo_levels) == list:
-            raise ValueError('geo_levels variable must be a list.')
-        if not all(isinstance(item, str) for item in geo_levels):
-            raise ValueError('geo_levels variable must be a list of strings.')
+        if not type(geog_levels) == list:
+            raise ValueError('geog_levels variable must be a list.')
+        if not all(isinstance(item, str) for item in geog_levels):
+            raise ValueError('geog_levels variable must be a list of strings.')
         if years:
             if type(years) != list:
                 raise ValueError('year variable must be a list for multi year datasets.')
@@ -346,53 +355,53 @@ class Dataset(NHGIS):
     def __repr__(self):
         return f'''Dataset(dataset: {self.dataset}, 
         Number of tables: {len(self.data_tables)},
-        Number of geographies: {len(self.geo_levels)},
+        Number of geographies: {len(self.geog_levels)},
         Number of breakdowns: {len(self.breakdowns) if self.breakdowns else self.breakdowns},
         years: {self.years})'''
     
     def to_payload(self):
         payload = {self.dataset: {
-            "years": self.years,
+            "years": [str(year) for year in self.years] if self.years else [],
             "breakdown_values": self.breakdowns,
             "data_tables": self.data_tables,
-            "geog_levels": self.geo_levels
+            "geog_levels": self.geog_levels
         }}
         return payload
     
 class TimeSeries(NHGIS):
     '''A wrapper for creating validating requests to the IPUMS NHGIS API.
     This class is used to format the json data structure for the NHGIS class.'''
-    def __init__(self, data_table, geo_levels='macro'):
-        self.validate(data_table, geo_levels)
+    def __init__(self, data_table, geog_levels='macro'):
+        self.validate(data_table, geog_levels)
 
         
-    def validate(self, data_table, geo_levels):
-        self.validate_types(data_table, geo_levels)
+    def validate(self, data_table, geog_levels):
+        self.validate_types(data_table, geog_levels)
         metadata = self.time_series_metadata(data_table=data_table)
         self.data_table = data_table
-        self.validate_geo_levels(metadata, geo_levels)
+        self.validate_geog_levels(metadata, geog_levels)
         
-    def validate_types(self, data_table, geo_levels):
+    def validate_types(self, data_table, geog_levels):
         if type(data_table) != str:
             raise ValueError('`data_table` variable must be a string.')
-        if geo_levels != 'macro':
-            if type(geo_levels) != list:
-                raise ValueError('If `geo_levels` != "macro" `geo_levels` must be a list.')
-            if not all(isinstance(item, str) for item in geo_levels):
-                raise ValueError('If `geo_levels` != "macro" `geo_levels` must be a list of strings.')
+        if geog_levels != 'macro':
+            if type(geog_levels) != list:
+                raise ValueError('If `geog_levels` != "macro" `geog_levels` must be a list.')
+            if not all(isinstance(item, str) for item in geog_levels):
+                raise ValueError('If `geog_levels` != "macro" `geog_levels` must be a list of strings.')
     
-    def validate_geo_levels(self, metadata, geo_levels):
-        if geo_levels == 'macro':
-            self.geo_levels = [metadata['geog_levels'][0]['name']]
+    def validate_geog_levels(self, metadata, geog_levels):
+        if geog_levels == 'macro':
+            self.geog_levels = [metadata['geog_levels'][0]['name']]
         else:
             supported_levels = [value['name'] for value in metadata['geog_levels']]
-            for level in geo_levels:
+            for level in geog_levels:
                 if level not in supported_levels:
                     raise ValueError(f'Time Series {metadata["name"]} does not support geo level: "{level}"')
-            self.geo_levels = geo_levels
+            self.geog_levels = geog_levels
             
     def to_payload(self):
         payload = {self.data_table: {
-            'geog_levels': self.geo_levels}}
+            'geog_levels': self.geog_levels}}
         
         return payload
