@@ -2,8 +2,6 @@
 
 The goal of this project is better incorporate the IPUMS API into the Python ecosystem. 
 
-Eventually, this package will be importable with `pip`, but for now to use ipumspy please clone this repo onto your local computer.
-
 Below is a recreation of the starter code from the IPUMS API documentation, using ipumspy:
 
 ```python
